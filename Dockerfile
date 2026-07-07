@@ -5,6 +5,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.16 /uv /uvx /bin/
 RUN groupadd --system --gid 999 appuser \
     && useradd --system --gid 999 --uid 999 --create-home appuser
 
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install dependencies
@@ -15,7 +18,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY . /app
 
-RUN chown -R appuser:appuser /app /venv
+RUN mkdir -p /models/hf_cache /models/cache \
+    && chown -R appuser:appuser /app /models
 
 USER appuser
 
