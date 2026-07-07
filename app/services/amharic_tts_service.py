@@ -11,16 +11,21 @@ from omnivoice import OmniVoice, OmniVoiceGenerationConfig
 from pydub import AudioSegment
 
 from app.config import settings
+from app.services.base import BaseTTSService
 from app.utils.audio import export_wav, trim_leading_trailing_silence
 
 logger = logging.getLogger(__name__)
 
 
-class TTSService:
+class AmharicTTSService(BaseTTSService):
     def __init__(self) -> None:
         self.model: OmniVoice | None = None
         self.voice_clone_prompt = None
         self.ready = False
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
     def initialize(self) -> None:
         logger.info("Loading Amharic TTS: %s", settings.amharic_tts_model)
@@ -54,10 +59,9 @@ class TTSService:
         self.ready = True
         logger.info("Amharic TTS ready")
 
-    def _torch_device(self) -> str:
-        if settings.tts_device == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        return settings.tts_device
+    # ------------------------------------------------------------------
+    # Public API (satisfies BaseTTSService)
+    # ------------------------------------------------------------------
 
     def generate(self, text: str) -> bytes:
         if not self.ready:
@@ -77,6 +81,15 @@ class TTSService:
             return self._generate_chunk(chunks[0])
 
         return self._stitch_chunks(chunks)
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _torch_device(self) -> str:
+        if settings.tts_device == "auto":
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        return settings.tts_device
 
     def _split_chunks(self, text: str) -> list[str]:
         max_chars = max(40, settings.amharic_tts_chunk_chars)
@@ -139,6 +152,3 @@ class TTSService:
             stitched += audio
 
         return export_wav(trim_leading_trailing_silence(stitched))
-
-
-tts_service = TTSService()

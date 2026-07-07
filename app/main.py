@@ -7,7 +7,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.tts_service import tts_service
+from app.services import registry  # noqa: F401 — triggers __init__ registration
+from app.services import registry as svc_registry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,8 +24,12 @@ class TTSRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s", settings.app_name)
-    await asyncio.to_thread(tts_service.initialize)
-    logger.info("TTS service ready")
+    languages = svc_registry.all_languages()
+    for lang in languages:
+        service = svc_registry.get(lang)
+        logger.info("Initializing TTS service for language: %s", lang)
+        await asyncio.to_thread(service.initialize)
+        logger.info("TTS service ready for language: %s", lang)
     yield
 
 
@@ -38,18 +43,32 @@ def health() -> dict:
 
 @app.get("/ready")
 def ready() -> dict:
-    return {"ready": tts_service.ready}
+    return {lang: svc_registry.get(lang).ready for lang in svc_registry.all_languages()}
 
 
-@app.post("/tts/am")
-async def tts_am(payload: TTSRequest) -> Response:
-    if not tts_service.ready:
-        raise HTTPException(status_code=503, detail="TTS model is not ready")
+@app.post("/tts/{lang}")
+async def tts(lang: str, payload: TTSRequest) -> Response:
     try:
-        wav_bytes = await asyncio.to_thread(tts_service.generate, payload.text)
+        service = svc_registry.get(lang)
+    except KeyError as kerr:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No TTS service for language: '{lang}'. "
+            f"Available: {svc_registry.all_languages()}",
+        ) from kerr
+
+    if not service.ready:
+        raise HTTPException(
+            status_code=503, detail=f"TTS service for '{lang}' is not ready"
+        )
+
+    try:
+        wav_bytes = await asyncio.to_thread(service.generate, payload.text)
     except Exception as exc:
-        logger.exception("TTS failed")
+        logger.exception("TTS failed for language: %s", lang)
         raise HTTPException(status_code=500, detail="TTS processing failed") from exc
+
     if not wav_bytes:
         raise HTTPException(status_code=400, detail="Input produced no audio")
+
     return Response(content=wav_bytes, media_type="audio/wav")
