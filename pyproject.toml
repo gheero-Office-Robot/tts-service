@@ -1,0 +1,31 @@
+[project]
+name = "boa-tts"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.139.0",
+    "num2words>=0.5.14",
+    "omnivoice>=0.2.0",
+    "pydantic-settings>=2.14.2",
+    "pydub>=0.25.1",
+    "soundfile>=0.14.0",
+    "torch>=2.12.1",
+    "uvicorn>=0.50.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.20",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # pyflakes
+    "UP", # pyupgrade - suggests modern Python syntax
+    "S", # flake8-bandit - security checks
+    "B", # flake8-bugbear - common bugs/pitfalls
+    "SIM", # flake8-simplify - code simplifications
+    "I", # isort - import sorting
+]

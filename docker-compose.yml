@@ -1,0 +1,31 @@
+services:
+  tts:
+    build: .
+    container_name: boa-tts
+    restart: unless-stopped
+    ports:
+      - "11346:8000"
+    env_file:
+      - .env
+    environment:
+      TTS_DEVICE: ${TTS_DEVICE:-cuda}
+    volumes:
+      - hf_cache:/models/hf_cache
+      - model_cache:/models/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s   # model loading takes time
+
+volumes:
+  hf_cache:
+  model_cache:
