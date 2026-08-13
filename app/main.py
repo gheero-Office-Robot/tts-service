@@ -1,9 +1,11 @@
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from app.config import settings
@@ -33,7 +35,85 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app = FastAPI(title=settings.app_name, lifespan=lifespan, docs_url=None)
+
+
+@app.get("/docs", include_in_schema=False)
+def swagger_ui() -> HTMLResponse:
+    """Serve Swagger UI with a browser-native player for generated speech."""
+    swagger = get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=f"{settings.app_name} - Swagger UI",
+    )
+    languages = json.dumps(svc_registry.all_languages())
+    player = f"""
+    <section id="tts-player" style="max-width: 1460px; margin: 18px auto;
+      padding: 18px; font-family: sans-serif; border: 1px solid #d8dde3;
+      border-radius: 6px; box-sizing: border-box;">
+      <h2 style="margin-top: 0;">Try TTS &amp; listen</h2>
+      <form id="tts-player-form">
+        <label>Language
+          <select id="tts-language" style="margin: 0 12px 10px 6px;"></select>
+        </label>
+        <label style="display: block; margin-bottom: 10px;">Text
+          <textarea id="tts-text" required rows="3" style="display: block; width: 100%;
+            margin-top: 5px; box-sizing: border-box;"></textarea>
+        </label>
+        <button type="submit" style="padding: 8px 18px; cursor: pointer;">
+          Generate audio
+        </button>
+        <span id="tts-status" role="status" style="margin-left: 10px;"></span>
+      </form>
+      <audio id="tts-audio" controls
+        style="display: none; width: 100%; margin-top: 14px;"></audio>
+    </section>
+    <script>
+      const languages = {languages};
+      const languageSelect = document.getElementById('tts-language');
+      for (const language of languages) {{
+        languageSelect.add(new Option(language, language));
+      }}
+
+      let currentAudioUrl;
+      const playerForm = document.getElementById('tts-player-form');
+      playerForm.addEventListener('submit', async (event) => {{
+        event.preventDefault();
+        const status = document.getElementById('tts-status');
+        const audio = document.getElementById('tts-audio');
+        status.textContent = 'Generating...';
+        audio.style.display = 'none';
+
+        try {{
+          const response = await fetch(`/tts/${{encodeURIComponent(languageSelect.value)}}`, {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{text: document.getElementById('tts-text').value}}),
+          }});
+          if (!response.ok) {{
+            let message = `Request failed (${{response.status}})`;
+            try {{
+              const error = await response.json();
+              message = error.detail || message;
+            }} catch (_) {{}}
+            throw new Error(message);
+          }}
+
+          if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+          currentAudioUrl = URL.createObjectURL(await response.blob());
+          audio.src = currentAudioUrl;
+          audio.style.display = 'block';
+          status.textContent = 'Ready to play';
+          audio.load();
+        }} catch (error) {{
+          status.textContent = error.message;
+        }}
+      }});
+    </script>
+    """
+    html = swagger.body.decode("utf-8").replace(
+        '<div id="swagger-ui">', player + '<div id="swagger-ui">', 1
+    )
+    return HTMLResponse(html)
 
 
 @app.get("/health")
