@@ -123,7 +123,12 @@ def health() -> dict:
 
 @app.get("/ready")
 def ready() -> dict:
-    return {lang: svc_registry.get(lang).ready for lang in svc_registry.all_languages()}
+    statuses = {
+        lang: svc_registry.get(lang).ready for lang in svc_registry.all_languages()
+    }
+    if not all(statuses.values()):
+        raise HTTPException(status_code=503, detail=statuses)
+    return statuses
 
 
 @app.post("/tts/{lang}")

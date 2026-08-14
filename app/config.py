@@ -1,7 +1,5 @@
 import os
 from pathlib import Path
-from typing import Literal
-
 from pydantic_settings import BaseSettings
 
 
@@ -11,7 +9,10 @@ class Settings(BaseSettings):
     hf_home: str = "/models/hf_cache"
     model_cache_dir: str = "/models/cache"
 
-    tts_device: Literal["cpu", "cuda", "auto"] = "cuda"
+    tts_cuda_device: int = 0
+    tts_warmup_text: str = (
+        "ሰላም፣ ይህ የድምፅ ማሞቂያ ሙከራ ነው።"
+    )
 
     amharic_tts_model: str = "african-low-resource/omnivoice-amharic"
     amharic_voice_reference_path: str = str(

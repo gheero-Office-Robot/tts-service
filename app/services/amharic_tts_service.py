@@ -30,13 +30,14 @@ class AmharicTTSService(BaseTTSService):
     def initialize(self) -> None:
         logger.info("Loading Amharic TTS: %s", settings.amharic_tts_model)
 
-        device = self._torch_device()
+        device = self._require_cuda()
         self.model = OmniVoice.from_pretrained(
             settings.amharic_tts_model,
-            device_map="auto" if device == "cuda" else "cpu",
-            dtype=torch.float16 if device == "cuda" else torch.float32,
+            device_map={"": device},
+            dtype=torch.float16,
             attn_implementation="eager",
         )
+        self._assert_cuda_resident()
 
         ref_wav = Path(settings.amharic_voice_reference_path)
         ref_txt = Path(settings.amharic_voice_reference_text_path)
@@ -56,8 +57,18 @@ class AmharicTTSService(BaseTTSService):
             ref_text=ref_text,
         )
 
+        logger.info("Warming up Amharic TTS on %s", device)
+        self._generate_chunk(settings.tts_warmup_text)
+        torch.cuda.synchronize(settings.tts_cuda_device)
+        self._assert_cuda_resident()
+
         self.ready = True
-        logger.info("Amharic TTS ready")
+        logger.info(
+            "Amharic TTS ready on %s (allocated %.2f GiB, reserved %.2f GiB)",
+            device,
+            torch.cuda.memory_allocated(settings.tts_cuda_device) / 1024**3,
+            torch.cuda.memory_reserved(settings.tts_cuda_device) / 1024**3,
+        )
 
     # ------------------------------------------------------------------
     # Public API (satisfies BaseTTSService)
@@ -86,10 +97,58 @@ class AmharicTTSService(BaseTTSService):
     # Internals
     # ------------------------------------------------------------------
 
-    def _torch_device(self) -> str:
-        if settings.tts_device == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        return settings.tts_device
+    def _require_cuda(self) -> str:
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA is required, but PyTorch cannot access an NVIDIA GPU"
+            )
+        if not 0 <= settings.tts_cuda_device < torch.cuda.device_count():
+            raise RuntimeError(
+                f"CUDA device {settings.tts_cuda_device} is unavailable; "
+                f"found {torch.cuda.device_count()} device(s)"
+            )
+        torch.cuda.set_device(settings.tts_cuda_device)
+        return f"cuda:{settings.tts_cuda_device}"
+
+    def _assert_cuda_resident(self) -> None:
+        if self.model is None:
+            raise RuntimeError("TTS model is not loaded")
+
+        device_map = getattr(self.model, "hf_device_map", None)
+        if device_map:
+            non_cuda = {
+                name: device
+                for name, device in device_map.items()
+                if not str(device).startswith("cuda")
+                and not isinstance(device, int)
+            }
+            if non_cuda:
+                raise RuntimeError(
+                    f"Model contains CPU/disk-offloaded layers: {non_cuda}"
+                )
+
+        modules = [self.model]
+        modules.extend(
+            value
+            for value in vars(self.model).values()
+            if isinstance(value, torch.nn.Module)
+        )
+        tensors = [
+            tensor
+            for module in modules
+            if isinstance(module, torch.nn.Module)
+            for tensor in (*module.parameters(), *module.buffers())
+        ]
+        if not tensors:
+            raise RuntimeError("Could not verify model tensor placement")
+
+        non_cuda_devices = sorted(
+            {str(tensor.device) for tensor in tensors if not tensor.is_cuda}
+        )
+        if non_cuda_devices:
+            raise RuntimeError(
+                f"Model tensors are not fully resident on CUDA: {non_cuda_devices}"
+            )
 
     def _split_chunks(self, text: str) -> list[str]:
         max_chars = max(40, settings.amharic_tts_chunk_chars)
