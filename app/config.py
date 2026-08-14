@@ -14,7 +14,7 @@ class Settings(BaseSettings):
         "ሰላም፣ ይህ የድምፅ ማሞቂያ ሙከራ ነው።"
     )
 
-    amharic_tts_model: str = "african-low-resource/omnivoice-amharic"
+    amharic_tts_model: str = "gheero-Leyu/amharic-omnivoice-tts"
     amharic_voice_reference_path: str = str(
         Path(__file__).resolve().parents[1]
         / "assets/voices/amharic_reference_voice.wav"
